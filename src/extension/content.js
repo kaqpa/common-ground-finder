@@ -2,7 +2,7 @@
  * Letterboxd Movies in Common - Content Script
  * Injects "Movies in common" menu item on user profile pages
  */
-
+alert("Extension Loaded!");
 (function () {
   'use strict';
 
