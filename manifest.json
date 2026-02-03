@@ -3,7 +3,7 @@
   "name": "Letterboxd Movies in Common",
   "version": "1.0.0",
   "description": "See which movies you and another Letterboxd user have both watched or added to your watchlist",
-  "permissions": [],
+  "permissions": ["activeTab", "scripting"],
   "host_permissions": [
     "https://letterboxd.com/*"
   ],
