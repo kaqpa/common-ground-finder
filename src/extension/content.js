@@ -2,7 +2,7 @@
  * Letterboxd Movies in Common - Content Script
  * Injects "Movies in common" menu item on user profile pages
  */
-alert("Extension Loaded!");
+
 (function () {
   'use strict';
 
@@ -62,16 +62,19 @@ alert("Extension Loaded!");
     // Check against excluded paths
     for (const pattern of EXCLUDED_PATHS) {
       if (pattern.test(path)) {
+        console.log(excluded path);
         return false;
       }
     }
     
     // Must have a username in the path
     const profileUsername = getProfileUsername();
+    console.log(no profile user name);
     if (!profileUsername) return false;
     
     // Must not be the logged-in user's page
     const loggedInUsername = getLoggedInUsername();
+    console.log(logged in user name);
     if (!loggedInUsername) return false;
     
     return profileUsername !== loggedInUsername;
