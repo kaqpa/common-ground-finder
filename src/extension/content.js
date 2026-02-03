@@ -46,9 +46,12 @@
    */
   function getProfileUsername() {
     const path = window.location.pathname;
-    const match = path.match(/^\/([a-zA-Z0-9_]+)(\/.*)?$/);
-    if (match) {
-      return match[1].toLowerCase();
+    const segments = path.split('/').filter(Boolean); // results in ["profile page"]
+    
+    if (segments.length > 0) {
+        const username = segments[0].toLowerCase();
+        console.log("Username extracted via split:", username);
+        return username;
     }
     return null;
   }
