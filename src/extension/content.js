@@ -27,17 +27,60 @@
    * Get the logged-in user's username from the avatar
    */
   function getLoggedInUsername() {
-    const avatar = document.querySelector('.avatar.-a24');
-    if (avatar) {
-      const alt = avatar.getAttribute('alt');
-      if (alt) return alt.toLowerCase();
+    // Strategy 1: Header navigation person link
+    const personLink = document.querySelector('header a[href^="/"][data-person]');
+    if (personLink) {
+      const href = personLink.getAttribute('href');
+      const username = href.replace(/^\//, '').replace(/\/$/, '').split('/')[0];
+      console.log('[MIC] Found username via header person link:', username);
+      return username.toLowerCase();
     }
-    // Fallback: check the profile menu link
-    const profileLink = document.querySelector('a[href^="/"][data-person]');
-    if (profileLink) {
-      const href = profileLink.getAttribute('href');
-      return href.replace(/^\//, '').replace(/\/$/, '').toLowerCase();
+    
+    // Strategy 2: Account menu avatar with alt text
+    const avatarWithAlt = document.querySelector('.avatar[alt], header .avatar[alt]');
+    if (avatarWithAlt) {
+      const alt = avatarWithAlt.getAttribute('alt');
+      if (alt) {
+        console.log('[MIC] Found username via avatar alt:', alt);
+        return alt.toLowerCase();
+      }
     }
+    
+    // Strategy 3: Account dropdown link
+    const accountLink = document.querySelector('#header .account a[href^="/"], #header a.avatar[href^="/"]');
+    if (accountLink) {
+      const href = accountLink.getAttribute('href');
+      const username = href.replace(/^\//, '').replace(/\/$/, '').split('/')[0];
+      console.log('[MIC] Found username via account link:', username);
+      return username.toLowerCase();
+    }
+    
+    // Strategy 4: Look for navigation item with "Your" in text and extract from sibling links
+    const navItems = document.querySelectorAll('nav a[href^="/"]');
+    for (const item of navItems) {
+      const href = item.getAttribute('href');
+      if (href && href.match(/^\/[a-z0-9_-]+\/?$/i)) {
+        const potentialUsername = href.replace(/^\//, '').replace(/\/$/, '');
+        // Exclude known non-user paths
+        const excludedPaths = ['film', 'films', 'lists', 'members', 'activity', 'journal', 'search', 'settings', 'pro', 'patron', 'about', 'contact', 'help'];
+        if (!excludedPaths.includes(potentialUsername.toLowerCase())) {
+          console.log('[MIC] Found potential username via nav:', potentialUsername);
+          return potentialUsername.toLowerCase();
+        }
+      }
+    }
+    
+    // Strategy 5: Legacy avatar class
+    const legacyAvatar = document.querySelector('.avatar.-a24, .avatar.-a40');
+    if (legacyAvatar) {
+      const alt = legacyAvatar.getAttribute('alt');
+      if (alt) {
+        console.log('[MIC] Found username via legacy avatar:', alt);
+        return alt.toLowerCase();
+      }
+    }
+    
+    console.log('[MIC] Could not detect logged-in username');
     return null;
   }
 
@@ -521,8 +564,31 @@
       handleMoviesInCommonClick();
     });
     
-    // Append to nav list
-    navList.appendChild(menuItem);
+    // Find the "Network" menu item and insert after it
+    const navItems = navList.querySelectorAll('li');
+    let networkItem = null;
+    
+    for (const item of navItems) {
+      const link = item.querySelector('a');
+      if (link && link.textContent.trim().toLowerCase() === 'network') {
+        networkItem = item;
+        break;
+      }
+    }
+    
+    if (networkItem && networkItem.nextSibling) {
+      // Insert after Network
+      navList.insertBefore(menuItem, networkItem.nextSibling);
+    } else if (networkItem) {
+      // Network is the last item, append after it
+      navList.appendChild(menuItem);
+    } else if (navItems.length >= 10) {
+      // Fallback: insert at position 11 (index 10)
+      navList.insertBefore(menuItem, navItems[10] || null);
+    } else {
+      // Final fallback: append to end
+      navList.appendChild(menuItem);
+    }
   }
 
   // ========== INITIALIZATION ==========
