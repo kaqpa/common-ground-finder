@@ -70,15 +70,15 @@
       }
     }
     
-/*    // Must have a username in the path
+    // Must have a username in the path
     const profileUsername = getProfileUsername();
     console.log("no profile user name");
-    if (!profileUsername) return false;
+  //  if (!profileUsername) return false;
     
     // Must not be the logged-in user's page
     const loggedInUsername = getLoggedInUsername();
     console.log("logged in user name");
-    if (!loggedInUsername) return false;   */
+ //   if (!loggedInUsername) return false;   
     
     return profileUsername !== loggedInUsername;
   }
