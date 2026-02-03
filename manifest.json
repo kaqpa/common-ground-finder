@@ -11,7 +11,7 @@
     {
       "matches": ["https://letterboxd.com/*"],
       "js": ["src/extension/content.js"],
-      "run_at": "document_idle"
+      "run_at": "document_start"
     }
   ],
   "icons": {
