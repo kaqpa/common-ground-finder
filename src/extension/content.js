@@ -404,13 +404,75 @@
   // ========== UI INJECTION ==========
 
   /**
+   * Fetch poster URL from a movie page
+   */
+  async function fetchPosterUrl(slug) {
+    try {
+      const response = await fetch(`https://letterboxd.com/film/${slug}/`);
+      const html = await response.text();
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, 'text/html');
+      
+      // Find div.poster.film-poster and extract image
+      const posterDiv = doc.querySelector('div.poster.film-poster, div.film-poster');
+      if (posterDiv) {
+        const img = posterDiv.querySelector('img');
+        if (img) {
+          return img.src || img.dataset.src || '';
+        }
+      }
+      
+      // Fallback: try other poster selectors
+      const altImg = doc.querySelector('.image img, .poster img, [data-film-slug] img');
+      if (altImg) {
+        return altImg.src || altImg.dataset.src || '';
+      }
+      
+      return '';
+    } catch (error) {
+      console.error(`[MIC] Error fetching poster for ${slug}:`, error);
+      return '';
+    }
+  }
+
+  /**
+   * Batch fetch posters for movies (with rate limiting)
+   */
+  async function fetchPostersForMovies(movies, onProgress) {
+    const batchSize = 5;
+    const delay = 200;
+    
+    for (let i = 0; i < movies.length; i += batchSize) {
+      const batch = movies.slice(i, i + batchSize);
+      onProgress?.(`Fetching posters... ${Math.min(i + batchSize, movies.length)}/${movies.length}`);
+      
+      await Promise.all(batch.map(async (movie) => {
+        if (!movie.poster || movie.poster.includes('empty-poster')) {
+          movie.poster = await fetchPosterUrl(movie.slug);
+        }
+      }));
+      
+      if (i + batchSize < movies.length) {
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+
+  /**
    * Create and inject the content overlay (replaces main content area only)
    */
   function createOverlay() {
-    // Find the main content area
-    const mainContent = document.querySelector('section.col-main, .col-main, #content .col-main');
+    // Find the main content area - try section.col-main first, then .cols-2
+    let mainContent = document.querySelector('section.col-main, .col-main, #content .col-main');
+    
     if (!mainContent) {
-      console.error('[MIC] Could not find main content area');
+      // Fallback to cols-2
+      mainContent = document.querySelector('.cols-2, #content .cols-2');
+      console.log('[MIC] col-main not found, using cols-2 fallback');
+    }
+    
+    if (!mainContent) {
+      console.error('[MIC] Could not find main content area (tried col-main and cols-2)');
       return null;
     }
     
@@ -499,11 +561,12 @@
   }
 
   /**
-   * Generate the content HTML for the overlay
+   * Generate the content HTML for the overlay - single table with poster rows
    */
   function generateContentHtml(userA, userB, commonMovies) {
     const userAAvatar = userA.avatar || 'https://letterboxd.com/static/img/avatar70.1b45ce0c.png';
     const userBAvatar = userB.avatar || 'https://letterboxd.com/static/img/avatar70.1b45ce0c.png';
+    const defaultPoster = 'https://letterboxd.com/static/img/empty-poster-230.c6baa486.png';
     
     if (commonMovies.length === 0) {
       return `
@@ -513,33 +576,75 @@
       `;
     }
     
-    const userAMoviesHtml = commonMovies.map(cm => movieCardHtml(cm.userA)).join('');
-    const userBMoviesHtml = commonMovies.map(cm => movieCardHtml(cm.userB)).join('');
+    // Generate table rows - one row per movie with both users' data
+    const rowsHtml = commonMovies.map(cm => {
+      const userAPoster = cm.userA.poster || defaultPoster;
+      const userBPoster = cm.userB.poster || defaultPoster;
+      
+      const userARating = cm.userA.rating 
+        ? `<span class="mic-rating">${'★'.repeat(Math.floor(cm.userA.rating))}${cm.userA.rating % 1 ? '½' : ''}</span>`
+        : '';
+      const userBRating = cm.userB.rating 
+        ? `<span class="mic-rating">${'★'.repeat(Math.floor(cm.userB.rating))}${cm.userB.rating % 1 ? '½' : ''}</span>`
+        : '';
+      
+      const userAStatusIcon = cm.userA.status === 'watched' 
+        ? `<svg class="mic-status-icon mic-watched" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>`
+        : `<svg class="mic-status-icon mic-watchlist" viewBox="0 0 24 24" fill="currentColor"><path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2z"/></svg>`;
+      
+      const userBStatusIcon = cm.userB.status === 'watched' 
+        ? `<svg class="mic-status-icon mic-watched" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>`
+        : `<svg class="mic-status-icon mic-watchlist" viewBox="0 0 24 24" fill="currentColor"><path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2z"/></svg>`;
+      
+      return `
+        <tr class="mic-row">
+          <td class="mic-cell mic-cell-user">
+            <a href="https://letterboxd.com/film/${cm.userA.slug}/" target="_blank" class="mic-poster-link">
+              <img src="${userAPoster}" alt="${cm.userA.title}" class="mic-poster" loading="lazy" />
+            </a>
+            <div class="mic-movie-meta">
+              ${userAStatusIcon}
+              ${userARating}
+            </div>
+          </td>
+          <td class="mic-cell mic-cell-title">
+            <a href="https://letterboxd.com/film/${cm.userA.slug}/" target="_blank" class="mic-movie-title">${cm.userA.title}</a>
+          </td>
+          <td class="mic-cell mic-cell-user">
+            <a href="https://letterboxd.com/film/${cm.userB.slug}/" target="_blank" class="mic-poster-link">
+              <img src="${userBPoster}" alt="${cm.userB.title}" class="mic-poster" loading="lazy" />
+            </a>
+            <div class="mic-movie-meta">
+              ${userBStatusIcon}
+              ${userBRating}
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
     
     return `
       <div class="mic-stats">
         <span class="mic-count">${commonMovies.length} movies in common</span>
       </div>
-      <div class="mic-table">
-        <div class="mic-column">
-          <div class="mic-column-header">
-            <img src="${userAAvatar}" alt="${userA.displayName}" class="mic-avatar" />
-            <span class="mic-username">${userA.displayName}</span>
-          </div>
-          <div class="mic-movies-grid">
-            ${userAMoviesHtml}
-          </div>
-        </div>
-        <div class="mic-column">
-          <div class="mic-column-header">
-            <img src="${userBAvatar}" alt="${userB.displayName}" class="mic-avatar" />
-            <span class="mic-username">${userB.displayName}</span>
-          </div>
-          <div class="mic-movies-grid">
-            ${userBMoviesHtml}
-          </div>
-        </div>
-      </div>
+      <table class="mic-table">
+        <thead>
+          <tr class="mic-header-row">
+            <th class="mic-th">
+              <img src="${userAAvatar}" alt="${userA.displayName}" class="mic-avatar" />
+              <span class="mic-username">${userA.displayName}</span>
+            </th>
+            <th class="mic-th mic-th-title">Movie</th>
+            <th class="mic-th">
+              <img src="${userBAvatar}" alt="${userB.displayName}" class="mic-avatar" />
+              <span class="mic-username">${userB.displayName}</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml}
+        </tbody>
+      </table>
     `;
   }
 
@@ -591,6 +696,15 @@
       // Debug: Log common movies
       console.log('[MIC] Common movies found:', commonMovies);
       console.log(`[MIC] Total common movies: ${commonMovies.length}`);
+      
+      // Fetch posters for common movies
+      if (commonMovies.length > 0) {
+        const allMoviesToFetchPosters = [
+          ...commonMovies.map(cm => cm.userA),
+          ...commonMovies.map(cm => cm.userB)
+        ];
+        await fetchPostersForMovies(allMoviesToFetchPosters, ui.setLoading);
+      }
       
       // Show results
       const contentHtml = generateContentHtml(userAInfo, userBInfo, commonMovies);
@@ -724,6 +838,7 @@
         min-height: 400px;
         display: flex;
         flex-direction: column;
+        font-size: .8125rem;
       }
 
       .mic-header {
@@ -737,7 +852,7 @@
 
       .mic-header h2 {
         color: #fff;
-        font-size: 18px;
+        font-size: 1.125rem;
         font-weight: 600;
       }
 
@@ -781,12 +896,11 @@
 
       .mic-loading-text {
         color: #9ab;
-        font-size: 14px;
+        font-size: .8125rem;
       }
 
-      /* Content */
+      /* Content - no internal scroll, uses page scroll */
       .mic-content {
-        overflow-y: auto;
         padding: 20px;
         flex: 1;
       }
@@ -801,103 +915,102 @@
         background: #00e054;
         color: #14181c;
         font-weight: 600;
-        font-size: 14px;
+        font-size: .8125rem;
         padding: 6px 16px;
         border-radius: 20px;
       }
 
-      /* Table layout */
+      /* Table layout - actual HTML table */
       .mic-table {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 24px;
-      }
-
-      @media (max-width: 768px) {
-        .mic-table {
-          grid-template-columns: 1fr;
-        }
-      }
-
-      .mic-column {
+        width: 100%;
+        border-collapse: collapse;
         background: #1c2228;
         border-radius: 8px;
         overflow: hidden;
       }
 
-      .mic-column-header {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 16px;
-        border-bottom: 1px solid #2c3440;
+      .mic-header-row {
         background: #242c34;
       }
 
-      .mic-avatar {
-        width: 40px;
-        height: 40px;
-        border-radius: 50%;
-        object-fit: cover;
-      }
-
-      .mic-username {
+      .mic-th {
+        padding: 12px 16px;
+        text-align: left;
+        border-bottom: 1px solid #2c3440;
         color: #fff;
         font-weight: 600;
-        font-size: 16px;
+        font-size: .8125rem;
       }
 
-      /* Movies grid */
-      .mic-movies-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-        gap: 12px;
-        padding: 16px;
-        max-height: 400px;
-        overflow-y: auto;
+      .mic-th-title {
+        text-align: center;
       }
 
-      .mic-movie-card {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
+      .mic-th .mic-avatar {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        object-fit: cover;
+        vertical-align: middle;
+        margin-right: 8px;
+      }
+
+      .mic-th .mic-username {
+        vertical-align: middle;
+        font-size: .8125rem;
+      }
+
+      .mic-row {
+        border-bottom: 1px solid #2c3440;
+      }
+
+      .mic-row:last-child {
+        border-bottom: none;
+      }
+
+      .mic-row:hover {
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .mic-cell {
+        padding: 12px 16px;
+        vertical-align: middle;
+      }
+
+      .mic-cell-user {
+        width: 100px;
+      }
+
+      .mic-cell-title {
+        text-align: center;
       }
 
       .mic-poster-link {
-        display: block;
+        display: inline-block;
         border-radius: 4px;
         overflow: hidden;
         transition: transform 0.2s, box-shadow 0.2s;
       }
 
       .mic-poster-link:hover {
-        transform: translateY(-4px);
-        box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4);
+        transform: scale(1.05);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
       }
 
       .mic-poster {
-        width: 100%;
-        aspect-ratio: 2/3;
+        width: 60px;
+        height: 90px;
         object-fit: cover;
         display: block;
         background: #2c3440;
-      }
-
-      .mic-movie-info {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
+        border-radius: 3px;
       }
 
       .mic-movie-title {
-        color: #9ab;
-        font-size: 11px;
+        color: #fff;
+        font-size: .8125rem;
         text-decoration: none;
-        line-height: 1.3;
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
+        font-weight: 500;
       }
 
       .mic-movie-title:hover {
@@ -907,12 +1020,13 @@
       .mic-movie-meta {
         display: flex;
         align-items: center;
-        gap: 6px;
+        gap: 4px;
+        margin-top: 4px;
       }
 
       .mic-status-icon {
-        width: 14px;
-        height: 14px;
+        width: 12px;
+        height: 12px;
       }
 
       .mic-watched {
@@ -925,7 +1039,7 @@
 
       .mic-rating {
         color: #00e054;
-        font-size: 11px;
+        font-size: .6875rem;
         letter-spacing: -1px;
       }
 
@@ -935,32 +1049,25 @@
         text-align: center;
         padding: 40px 20px;
         color: #9ab;
+        font-size: .8125rem;
       }
 
       .mic-error {
         color: #ff8080;
       }
 
-      /* Scrollbar styling */
-      .mic-movies-grid::-webkit-scrollbar,
-      .mic-content::-webkit-scrollbar {
-        width: 8px;
+      /* Avatar in header */
+      .mic-avatar {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        object-fit: cover;
       }
 
-      .mic-movies-grid::-webkit-scrollbar-track,
-      .mic-content::-webkit-scrollbar-track {
-        background: #14181c;
-      }
-
-      .mic-movies-grid::-webkit-scrollbar-thumb,
-      .mic-content::-webkit-scrollbar-thumb {
-        background: #2c3440;
-        border-radius: 4px;
-      }
-
-      .mic-movies-grid::-webkit-scrollbar-thumb:hover,
-      .mic-content::-webkit-scrollbar-thumb:hover {
-        background: #3c4a54;
+      .mic-username {
+        color: #fff;
+        font-weight: 600;
+        font-size: .8125rem;
       }
     `;
   }
