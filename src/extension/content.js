@@ -207,6 +207,7 @@
 
   /**
    * Fetch and parse a page, returning movie data
+   * Updated to target modern React-based DOM structure with LazyPoster components
    */
   async function fetchPageMovies(url) {
     try {
@@ -216,44 +217,96 @@
       const doc = parser.parseFromString(html, 'text/html');
       
       const movies = [];
-      const posters = doc.querySelectorAll('div.poster, li.poster-container div[data-film-slug]');
       
-      posters.forEach(poster => {
-        const slug = poster.dataset.filmSlug;
-        if (!slug) return;
+      // Strategy 1: Modern React structure - LazyPoster components
+      // Target elements with class 'react-component' and data-component-class='LazyPoster'
+      const lazyPosters = doc.querySelectorAll('[data-component-class="LazyPoster"], .react-component[data-component-class="LazyPoster"]');
+      
+      if (lazyPosters.length > 0) {
+        console.log(`[MIC] Found ${lazyPosters.length} LazyPoster elements on ${url}`);
         
-        const filmLink = poster.querySelector('a') || poster.closest('li')?.querySelector('a');
-        const title = filmLink?.getAttribute('data-film-name') || 
-                     poster.querySelector('img')?.alt || 
-                     slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        
-        // Extract poster URL
-        let posterUrl = '';
-        const img = poster.querySelector('img');
-        if (img) {
-          posterUrl = img.src || img.dataset.src || '';
-        }
-        
-        // Extract rating
-        let rating = null;
-        const ratingEl = poster.closest('.poster-container, .film-poster')?.querySelector('.rating');
-        if (ratingEl) {
-          const ratingClass = Array.from(ratingEl.classList).find(c => c.startsWith('rated-'));
-          if (ratingClass) {
-            rating = parseInt(ratingClass.replace('rated-', ''), 10) / 2;
+        lazyPosters.forEach(poster => {
+          // Extract movie slug from data-item-link attribute
+          const itemLink = poster.getAttribute('data-item-link');
+          if (!itemLink) return;
+          
+          // Clean the slug: remove /film/ prefix and trailing slashes
+          const slug = itemLink.replace(/^\/film\//, '').replace(/\/$/, '');
+          if (!slug) return;
+          
+          // Try to get title from various sources
+          const img = poster.querySelector('img');
+          const title = img?.alt || 
+                       poster.getAttribute('data-film-name') ||
+                       slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+          
+          // Extract poster URL
+          let posterUrl = '';
+          if (img) {
+            posterUrl = img.src || img.dataset.src || '';
           }
-        }
+          
+          // Extract rating if available
+          let rating = null;
+          const container = poster.closest('li, .poster-container, .film-poster');
+          const ratingEl = container?.querySelector('.rating, [class*="rating"]');
+          if (ratingEl) {
+            const ratingClass = Array.from(ratingEl.classList).find(c => c.startsWith('rated-'));
+            if (ratingClass) {
+              rating = parseInt(ratingClass.replace('rated-', ''), 10) / 2;
+            }
+          }
+          
+          movies.push({ slug, title, poster: posterUrl, rating });
+        });
+      }
+      
+      // Strategy 2: Fallback to legacy structure if no LazyPoster elements found
+      if (movies.length === 0) {
+        console.log(`[MIC] No LazyPoster elements found, trying legacy selectors on ${url}`);
         
-        movies.push({ slug, title, poster: posterUrl, rating });
-      });
+        // Try data-film-slug attribute (older structure)
+        const legacyPosters = doc.querySelectorAll('div.poster[data-film-slug], li.poster-container div[data-film-slug], [data-film-slug]');
+        
+        legacyPosters.forEach(poster => {
+          const slug = poster.dataset.filmSlug || poster.getAttribute('data-film-slug');
+          if (!slug) return;
+          
+          const filmLink = poster.querySelector('a') || poster.closest('li')?.querySelector('a');
+          const title = filmLink?.getAttribute('data-film-name') || 
+                       poster.querySelector('img')?.alt || 
+                       slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+          
+          let posterUrl = '';
+          const img = poster.querySelector('img');
+          if (img) {
+            posterUrl = img.src || img.dataset.src || '';
+          }
+          
+          let rating = null;
+          const ratingEl = poster.closest('.poster-container, .film-poster')?.querySelector('.rating');
+          if (ratingEl) {
+            const ratingClass = Array.from(ratingEl.classList).find(c => c.startsWith('rated-'));
+            if (ratingClass) {
+              rating = parseInt(ratingClass.replace('rated-', ''), 10) / 2;
+            }
+          }
+          
+          movies.push({ slug, title, poster: posterUrl, rating });
+        });
+        
+        console.log(`[MIC] Legacy selectors found ${movies.length} movies on ${url}`);
+      }
       
       // Get next page URL from fetched document
-      const nextLink = doc.querySelector('.pagination .paginate-next:not(.disabled) a, .paginate-nextprev a.next');
+      const nextLink = doc.querySelector('.pagination .paginate-next:not(.disabled) a, .paginate-nextprev a.next, a.next');
       const nextUrl = nextLink?.href || null;
+      
+      console.log(`[MIC] Page ${url}: Found ${movies.length} movies, next page: ${nextUrl || 'none'}`);
       
       return { movies, nextUrl };
     } catch (error) {
-      console.error('Error fetching page:', url, error);
+      console.error('[MIC] Error fetching page:', url, error);
       return { movies: [], nextUrl: null };
     }
   }
