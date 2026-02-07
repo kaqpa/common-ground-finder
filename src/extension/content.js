@@ -351,28 +351,26 @@
   // ========== UI INJECTION ==========
 
   /**
-   * Create and inject the overlay
+   * Create and inject the content overlay (replaces main content area only)
    */
   function createOverlay() {
-    // Create shadow host
-    const host = document.createElement('div');
-    host.id = 'movies-in-common-overlay-host';
-    document.body.appendChild(host);
+    // Find the main content area
+    const mainContent = document.querySelector('section.col-main, .col-main, #content .col-main');
+    if (!mainContent) {
+      console.error('[MIC] Could not find main content area');
+      return null;
+    }
     
-    // Attach shadow DOM
-    const shadow = host.attachShadow({ mode: 'open' });
-    
-    // Inject styles
-    const style = document.createElement('style');
-    style.textContent = getOverlayStyles();
-    shadow.appendChild(style);
+    // Store original content
+    const originalContent = mainContent.innerHTML;
+    const originalOverflow = mainContent.style.overflow;
     
     // Create overlay container
-    const overlay = document.createElement('div');
-    overlay.className = 'mic-overlay';
-    overlay.innerHTML = `
-      <div class="mic-backdrop"></div>
-      <div class="mic-modal">
+    const overlayContainer = document.createElement('div');
+    overlayContainer.id = 'movies-in-common-content';
+    overlayContainer.innerHTML = `
+      <style>${getOverlayStyles()}</style>
+      <div class="mic-panel">
         <div class="mic-header">
           <h2>Movies in Common</h2>
           <button class="mic-close" aria-label="Close">
@@ -389,31 +387,32 @@
         <div class="mic-content" style="display: none;"></div>
       </div>
     `;
-    shadow.appendChild(overlay);
+    
+    // Replace main content with overlay
+    mainContent.innerHTML = '';
+    mainContent.style.overflow = 'visible';
+    mainContent.appendChild(overlayContainer);
+    
+    // Close function to restore original content
+    const close = () => {
+      mainContent.innerHTML = originalContent;
+      mainContent.style.overflow = originalOverflow;
+    };
     
     // Close button handler
-    overlay.querySelector('.mic-close').addEventListener('click', () => {
-      host.remove();
-    });
-    
-    // Backdrop click handler
-    overlay.querySelector('.mic-backdrop').addEventListener('click', () => {
-      host.remove();
-    });
+    overlayContainer.querySelector('.mic-close').addEventListener('click', close);
     
     return {
-      host,
-      shadow,
-      overlay,
+      container: overlayContainer,
       setLoading: (text) => {
-        overlay.querySelector('.mic-loading-text').textContent = text;
+        overlayContainer.querySelector('.mic-loading-text').textContent = text;
       },
       showContent: (html) => {
-        overlay.querySelector('.mic-loading').style.display = 'none';
-        overlay.querySelector('.mic-content').style.display = 'block';
-        overlay.querySelector('.mic-content').innerHTML = html;
+        overlayContainer.querySelector('.mic-loading').style.display = 'none';
+        overlayContainer.querySelector('.mic-content').style.display = 'block';
+        overlayContainer.querySelector('.mic-content').innerHTML = html;
       },
-      close: () => host.remove(),
+      close,
     };
   }
 
@@ -504,6 +503,10 @@
     }
     
     const ui = createOverlay();
+    if (!ui) {
+      alert('Could not find main content area to display results.');
+      return;
+    }
     
     try {
       // Get user info
@@ -517,19 +520,31 @@
       ui.setLoading(`Scraping ${userAInfo.displayName}'s movies...`);
       const userAMovies = await scrapeUserMovies(profileUsername, ui.setLoading);
       
+      // Debug: Log all movies for profile user
+      console.log(`[MIC] Movies found for ${profileUsername}:`, userAMovies);
+      console.log(`[MIC] Total movies for ${profileUsername}: ${userAMovies.length}`);
+      
       ui.setLoading(`Scraping ${userBInfo.displayName}'s movies...`);
       const userBMovies = await scrapeUserMovies(loggedInUsername, ui.setLoading);
+      
+      // Debug: Log all movies for logged-in user
+      console.log(`[MIC] Movies found for ${loggedInUsername}:`, userBMovies);
+      console.log(`[MIC] Total movies for ${loggedInUsername}: ${userBMovies.length}`);
       
       // Find common movies
       ui.setLoading('Finding common movies...');
       const commonMovies = findCommonMovies(userAMovies, userBMovies);
+      
+      // Debug: Log common movies
+      console.log('[MIC] Common movies found:', commonMovies);
+      console.log(`[MIC] Total common movies: ${commonMovies.length}`);
       
       // Show results
       const contentHtml = generateContentHtml(userAInfo, userBInfo, commonMovies);
       ui.showContent(contentHtml);
       
     } catch (error) {
-      console.error('Error:', error);
+      console.error('[MIC] Error:', error);
       ui.showContent(`
         <div class="mic-error">
           <p>An error occurred while fetching movies.</p>
@@ -553,11 +568,22 @@
     const navList = document.querySelector('.navlist, nav.nav-profile ul');
     if (!navList) return;
     
-    // Create the menu item
+    // Create the menu item - match exact structure of other nav items
     const menuItem = document.createElement('li');
     menuItem.id = 'movies-in-common-menu-item';
-    menuItem.innerHTML = `<a href="#" class="navlink">Movies in common</a>`;
     
+    // Create the anchor to match other nav items exactly
+    const link = document.createElement('a');
+    link.href = '#';
+    link.textContent = 'Movies in common';
+    
+    // Copy classes from existing nav links to match styling
+    const existingNavLink = navList.querySelector('li a');
+    if (existingNavLink) {
+      link.className = existingNavLink.className;
+    }
+    
+    menuItem.appendChild(link);
     // Add click handler
     menuItem.querySelector('a').addEventListener('click', (e) => {
       e.preventDefault();
@@ -639,36 +665,12 @@
         padding: 0;
       }
 
-      /* Overlay */
-      .mic-overlay {
-        position: fixed;
-        inset: 0;
-        z-index: 999999;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      }
-
-      .mic-backdrop {
-        position: absolute;
-        inset: 0;
-        background: rgba(0, 0, 0, 0.85);
-        backdrop-filter: blur(4px);
-      }
-
-      /* Modal */
-      .mic-modal {
-        position: relative;
-        width: 90%;
-        max-width: 1200px;
-        max-height: 85vh;
+      /* Panel (replaces main content) */
+      .mic-panel {
         background: #14181c;
-        border-radius: 8px;
-        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        min-height: 400px;
         display: flex;
         flex-direction: column;
-        overflow: hidden;
       }
 
       .mic-header {
