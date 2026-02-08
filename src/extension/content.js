@@ -444,10 +444,11 @@
       try {
         const data = JSON.parse(jsonLdScript.textContent);
         if (data.image) return data.image;
-      } catch (e) { console.error("JSON-LD parse error", e); }
+      } 
+      catch (e) { console.error("JSON-LD parse error", e); }
     }
 
-    // 2. Second Best: Open Graph Image (the social media thumbnail)
+   // 2. Second Best: Open Graph Image (the social media thumbnail)
     const ogImage = doc.querySelector('meta[property="og:image"]');
     if (ogImage && ogImage.content) return ogImage.content;
 
@@ -465,58 +466,7 @@
   }
 }
       
-      // Primary selector: div with both classes 'poster' and 'film-poster'
-      const posterDiv = doc.querySelector('div.poster.film-poster');
-      if (posterDiv) {
-        const img = posterDiv.querySelector('img');
-        if (img) {
-          const posterUrl = img.src || img.dataset.src || img.getAttribute('src') || '';
-          if (isValidPosterUrl(posterUrl)) {
-            console.log(`[MIC] Poster for ${slug}: ${posterUrl}`);
-            return posterUrl;
-          }
-        }
-        // Check for background image style
-        const bgStyle = posterDiv.style.backgroundImage;
-        if (bgStyle) {
-          const match = bgStyle.match(/url\(['"]?(.+?)['"]?\)/);
-          if (match && isValidPosterUrl(match[1])) {
-            console.log(`[MIC] Poster for ${slug}: ${match[1]}`);
-            return match[1];
-          }
-        }
-      }
-      
-      // Secondary: try just div.film-poster
-      const filmPosterDiv = doc.querySelector('div.film-poster');
-      if (filmPosterDiv) {
-        const img = filmPosterDiv.querySelector('img');
-        if (img) {
-          const posterUrl = img.src || img.dataset.src || '';
-          if (isValidPosterUrl(posterUrl)) {
-            console.log(`[MIC] Poster for ${slug}: ${posterUrl}`);
-            return posterUrl;
-          }
-        }
-      }
-      
-      // Fallback: try other poster selectors
-      const altImg = doc.querySelector('.image img, .poster img, [data-film-slug] img');
-      if (altImg) {
-        const posterUrl = altImg.src || altImg.dataset.src || '';
-        if (isValidPosterUrl(posterUrl)) {
-          console.log(`[MIC] Poster for ${slug}: ${posterUrl}`);
-          return posterUrl;
-        }
-      }
-      
-      console.log(`[MIC] No valid poster found for ${slug}`);
-      return '';
-    } catch (error) {
-      console.error(`[MIC] Error fetching poster for ${slug}:`, error);
-      return '';
-    }
-  }
+    
 
   /**
    * Batch fetch posters for movies (with rate limiting)
