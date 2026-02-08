@@ -405,6 +405,7 @@
 
   /**
    * Fetch poster URL from a movie page
+   * Targets div.poster.film-poster on /film/movie-name/ pages
    */
   async function fetchPosterUrl(slug) {
     try {
@@ -413,10 +414,32 @@
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
       
-      // Find div.poster.film-poster and extract image
-      const posterDiv = doc.querySelector('div.poster.film-poster, div.film-poster');
+      // Primary selector: div with both classes 'poster' and 'film-poster'
+      const posterDiv = doc.querySelector('div.poster.film-poster');
       if (posterDiv) {
+        console.log(`[MIC] Found div.poster.film-poster for ${slug}`);
         const img = posterDiv.querySelector('img');
+        if (img) {
+          const posterUrl = img.src || img.dataset.src || img.getAttribute('src') || '';
+          console.log(`[MIC] Poster URL for ${slug}:`, posterUrl);
+          return posterUrl;
+        }
+        // Check for background image style
+        const bgStyle = posterDiv.style.backgroundImage;
+        if (bgStyle) {
+          const match = bgStyle.match(/url\(['"]?(.+?)['"]?\)/);
+          if (match) {
+            console.log(`[MIC] Poster URL (bg) for ${slug}:`, match[1]);
+            return match[1];
+          }
+        }
+      }
+      
+      // Secondary: try just div.film-poster
+      const filmPosterDiv = doc.querySelector('div.film-poster');
+      if (filmPosterDiv) {
+        console.log(`[MIC] Found div.film-poster for ${slug}`);
+        const img = filmPosterDiv.querySelector('img');
         if (img) {
           return img.src || img.dataset.src || '';
         }
@@ -425,9 +448,11 @@
       // Fallback: try other poster selectors
       const altImg = doc.querySelector('.image img, .poster img, [data-film-slug] img');
       if (altImg) {
+        console.log(`[MIC] Using fallback poster selector for ${slug}`);
         return altImg.src || altImg.dataset.src || '';
       }
       
+      console.log(`[MIC] No poster found for ${slug}`);
       return '';
     } catch (error) {
       console.error(`[MIC] Error fetching poster for ${slug}:`, error);
@@ -480,7 +505,7 @@
     const originalContent = mainContent.innerHTML;
     const originalOverflow = mainContent.style.overflow;
     
-    // Create overlay container
+    // Create overlay container (no close button - user navigates away to close)
     const overlayContainer = document.createElement('div');
     overlayContainer.id = 'movies-in-common-content';
     overlayContainer.innerHTML = `
@@ -488,12 +513,6 @@
       <div class="mic-panel">
         <div class="mic-header">
           <h2>Movies in Common</h2>
-          <button class="mic-close" aria-label="Close">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="18" y1="6" x2="6" y2="18"></line>
-              <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
-          </button>
         </div>
         <div class="mic-loading">
           <div class="mic-spinner"></div>
@@ -508,15 +527,6 @@
     mainContent.style.overflow = 'visible';
     mainContent.appendChild(overlayContainer);
     
-    // Close function to restore original content
-    const close = () => {
-      mainContent.innerHTML = originalContent;
-      mainContent.style.overflow = originalOverflow;
-    };
-    
-    // Close button handler
-    overlayContainer.querySelector('.mic-close').addEventListener('click', close);
-    
     return {
       container: overlayContainer,
       setLoading: (text) => {
@@ -527,7 +537,6 @@
         overlayContainer.querySelector('.mic-content').style.display = 'block';
         overlayContainer.querySelector('.mic-content').innerHTML = html;
       },
-      close,
     };
   }
 
@@ -722,6 +731,31 @@
   }
 
   /**
+   * Remove active state from all nav items
+   */
+  function clearNavActiveStates() {
+    const navList = document.querySelector('.navlist, nav.nav-profile ul');
+    if (!navList) return;
+    
+    // Remove 'selected' class from all nav links (this controls the green underline)
+    navList.querySelectorAll('li a.navlink').forEach(link => {
+      link.classList.remove('selected');
+    });
+  }
+
+  /**
+   * Set active state on 'Movies in common' menu item
+   */
+  function setMoviesInCommonActive() {
+    clearNavActiveStates();
+    
+    const micLink = document.querySelector('#movies-in-common-menu-item a');
+    if (micLink) {
+      micLink.classList.add('navlink', 'selected');
+    }
+  }
+
+  /**
    * Inject the "Movies in common" menu item
    */
   function injectMenuItem() {
@@ -743,17 +777,22 @@
     const link = document.createElement('a');
     link.href = '#';
     link.textContent = 'Movies in common';
+    link.style.display = 'block'; // Ensure vertical alignment matches other items
     
     // Copy classes from existing nav links to match styling
     const existingNavLink = navList.querySelector('li a');
     if (existingNavLink) {
       link.className = existingNavLink.className;
+      // Ensure display block is still applied after copying classes
+      link.style.display = 'block';
     }
     
     menuItem.appendChild(link);
     // Add click handler
     menuItem.querySelector('a').addEventListener('click', (e) => {
       e.preventDefault();
+      // Set active state on this item
+      setMoviesInCommonActive();
       handleMoviesInCommonClick();
     });
     
@@ -856,20 +895,6 @@
         font-weight: 600;
       }
 
-      .mic-close {
-        background: none;
-        border: none;
-        color: #9ab;
-        cursor: pointer;
-        padding: 4px;
-        border-radius: 4px;
-        transition: all 0.2s;
-      }
-
-      .mic-close:hover {
-        color: #fff;
-        background: rgba(255, 255, 255, 0.1);
-      }
 
       /* Loading */
       .mic-loading {
