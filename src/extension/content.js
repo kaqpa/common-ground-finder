@@ -157,18 +157,30 @@
    * Extract poster image URL
    */
   function extractPosterUrl(posterEl) {
+    // 1. Look for the image tag
     const img = posterEl.querySelector('img');
+    
     if (img) {
-      return img.src || img.dataset.src || '';
+        // Priority: srcset (high res) > data-src (lazy load) > src (fallback)
+        const url = img.srcset ? img.srcset.split(' ')[0] : (img.dataset.src || img.src);
+        if (url && !url.includes('empty.png')) return url;
     }
-    // Check for background image
-    const div = posterEl.querySelector('div[style*="background"]');
-    if (div) {
-      const match = div.style.backgroundImage?.match(/url\(['"]?(.+?)['"]?\)/);
-      if (match) return match[1];
+
+    // 2. Letterboxd specific: Check for the 'content' attribute in meta/link tags 
+    // often found near the poster container for SEO
+    const metaImg = posterEl.querySelector('meta[itemprop="image"]');
+    if (metaImg && metaImg.content) return metaImg.content;
+
+    // 3. Fallback for background-image
+    const bgElement = posterEl.querySelector('.image') || posterEl;
+    const style = window.getComputedStyle(bgElement).backgroundImage;
+    if (style && style !== 'none') {
+        const match = style.match(/url\(['"]?(.+?)['"]?\)/);
+        if (match) return match[1];
     }
+
     return '';
-  }
+}
 
   /**
    * Scrape movies from current page
