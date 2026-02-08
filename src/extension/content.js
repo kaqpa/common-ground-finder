@@ -223,8 +223,6 @@
       const lazyPosters = doc.querySelectorAll('[data-component-class="LazyPoster"], .react-component[data-component-class="LazyPoster"]');
       
       if (lazyPosters.length > 0) {
-        console.log(`[MIC] Found ${lazyPosters.length} LazyPoster elements on ${url}`);
-        
         lazyPosters.forEach(poster => {
           // Extract movie slug from data-item-link attribute
           const itemLink = poster.getAttribute('data-item-link');
@@ -263,8 +261,6 @@
       
       // Strategy 2: Fallback to legacy structure if no LazyPoster elements found
       if (movies.length === 0) {
-        console.log(`[MIC] No LazyPoster elements found, trying legacy selectors on ${url}`);
-        
         // Try data-film-slug attribute (older structure)
         const legacyPosters = doc.querySelectorAll('div.poster[data-film-slug], li.poster-container div[data-film-slug], [data-film-slug]');
         
@@ -294,15 +290,14 @@
           
           movies.push({ slug, title, poster: posterUrl, rating });
         });
-        
-        console.log(`[MIC] Legacy selectors found ${movies.length} movies on ${url}`);
       }
       
       // Get next page URL from fetched document
       const nextLink = doc.querySelector('.pagination .paginate-next:not(.disabled) a, .paginate-nextprev a.next, a.next');
       const nextUrl = nextLink?.href || null;
       
-      console.log(`[MIC] Page ${url}: Found ${movies.length} movies, next page: ${nextUrl || 'none'}`);
+      // Console log: page URL and movie count
+      console.log(`[MIC] Page: ${url} - Found ${movies.length} movies`);
       
       return { movies, nextUrl };
     } catch (error) {
@@ -314,13 +309,19 @@
   /**
    * Scrape all movies from a user's films or watchlist (with pagination)
    */
-  async function scrapeAllPages(baseUrl, status) {
+  async function scrapeAllPages(baseUrl, status, onProgress) {
     const allMovies = [];
     let currentUrl = baseUrl;
     let pageCount = 0;
     const maxPages = 100; // Safety limit
+    const statusLabel = status === 'watchlist' ? 'watchlist' : 'films';
     
     while (currentUrl && pageCount < maxPages) {
+      pageCount++;
+      
+      // Update UI progress with page and total count
+      onProgress?.(`Scraping ${statusLabel} page ${pageCount}... (${allMovies.length} movies found)`);
+      
       const { movies, nextUrl } = await fetchPageMovies(currentUrl);
       
       movies.forEach(movie => {
@@ -328,13 +329,15 @@
       });
       
       currentUrl = nextUrl;
-      pageCount++;
       
       // Small delay to be respectful to the server
       if (currentUrl) {
         await new Promise(resolve => setTimeout(resolve, 300));
       }
     }
+    
+    // Final update
+    onProgress?.(`Scraped ${pageCount} ${statusLabel} pages (${allMovies.length} movies found)`);
     
     return allMovies;
   }
@@ -365,11 +368,15 @@
   async function scrapeUserMovies(username, onProgress) {
     const baseUrl = `https://letterboxd.com/${username}`;
     
-    onProgress?.(`Scraping ${username}'s watched films...`);
-    const watchedMovies = await scrapeAllPages(`${baseUrl}/films/`, 'watched');
+    onProgress?.(`Scraping ${username}'s films page 1...`);
+    const watchedMovies = await scrapeAllPages(`${baseUrl}/films/`, 'watched', (msg) => {
+      onProgress?.(`${username}: ${msg}`);
+    });
     
-    onProgress?.(`Scraping ${username}'s watchlist...`);
-    const watchlistMovies = await scrapeAllPages(`${baseUrl}/watchlist/`, 'watchlist');
+    onProgress?.(`Scraping ${username}'s watchlist page 1...`);
+    const watchlistMovies = await scrapeAllPages(`${baseUrl}/watchlist/`, 'watchlist', (msg) => {
+      onProgress?.(`${username}: ${msg}`);
+    });
     
     // Merge, preferring watched status if movie appears in both
     const movieMap = new Map();
@@ -406,30 +413,43 @@
   /**
    * Fetch poster URL from a movie page
    * Targets div.poster.film-poster on /film/movie-name/ pages
+   * Excludes empty-poster images
    */
   async function fetchPosterUrl(slug) {
     try {
-      const response = await fetch(`https://letterboxd.com/film/${slug}/`);
+      const movieUrl = `https://letterboxd.com/film/${slug}/`;
+      const response = await fetch(movieUrl);
       const html = await response.text();
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, 'text/html');
       
+      /**
+       * Check if a URL is valid (not empty-poster)
+       */
+      function isValidPosterUrl(url) {
+        if (!url) return false;
+        // Skip empty-poster images
+        if (url.includes('empty-poster')) return false;
+        return true;
+      }
+      
       // Primary selector: div with both classes 'poster' and 'film-poster'
       const posterDiv = doc.querySelector('div.poster.film-poster');
       if (posterDiv) {
-        console.log(`[MIC] Found div.poster.film-poster for ${slug}`);
         const img = posterDiv.querySelector('img');
         if (img) {
           const posterUrl = img.src || img.dataset.src || img.getAttribute('src') || '';
-          console.log(`[MIC] Poster URL for ${slug}:`, posterUrl);
-          return posterUrl;
+          if (isValidPosterUrl(posterUrl)) {
+            console.log(`[MIC] Poster for ${slug}: ${posterUrl}`);
+            return posterUrl;
+          }
         }
         // Check for background image style
         const bgStyle = posterDiv.style.backgroundImage;
         if (bgStyle) {
           const match = bgStyle.match(/url\(['"]?(.+?)['"]?\)/);
-          if (match) {
-            console.log(`[MIC] Poster URL (bg) for ${slug}:`, match[1]);
+          if (match && isValidPosterUrl(match[1])) {
+            console.log(`[MIC] Poster for ${slug}: ${match[1]}`);
             return match[1];
           }
         }
@@ -438,21 +458,27 @@
       // Secondary: try just div.film-poster
       const filmPosterDiv = doc.querySelector('div.film-poster');
       if (filmPosterDiv) {
-        console.log(`[MIC] Found div.film-poster for ${slug}`);
         const img = filmPosterDiv.querySelector('img');
         if (img) {
-          return img.src || img.dataset.src || '';
+          const posterUrl = img.src || img.dataset.src || '';
+          if (isValidPosterUrl(posterUrl)) {
+            console.log(`[MIC] Poster for ${slug}: ${posterUrl}`);
+            return posterUrl;
+          }
         }
       }
       
       // Fallback: try other poster selectors
       const altImg = doc.querySelector('.image img, .poster img, [data-film-slug] img');
       if (altImg) {
-        console.log(`[MIC] Using fallback poster selector for ${slug}`);
-        return altImg.src || altImg.dataset.src || '';
+        const posterUrl = altImg.src || altImg.dataset.src || '';
+        if (isValidPosterUrl(posterUrl)) {
+          console.log(`[MIC] Poster for ${slug}: ${posterUrl}`);
+          return posterUrl;
+        }
       }
       
-      console.log(`[MIC] No poster found for ${slug}`);
+      console.log(`[MIC] No valid poster found for ${slug}`);
       return '';
     } catch (error) {
       console.error(`[MIC] Error fetching poster for ${slug}:`, error);
@@ -741,6 +767,11 @@
     navList.querySelectorAll('li a.navlink').forEach(link => {
       link.classList.remove('selected');
     });
+    
+    // Also remove -active class from navitem li elements
+    navList.querySelectorAll('li.navitem').forEach(li => {
+      li.classList.remove('-active');
+    });
   }
 
   /**
@@ -749,7 +780,11 @@
   function setMoviesInCommonActive() {
     clearNavActiveStates();
     
+    const micItem = document.querySelector('#movies-in-common-menu-item');
     const micLink = document.querySelector('#movies-in-common-menu-item a');
+    if (micItem) {
+      micItem.className = 'navitem js-page-network -active';
+    }
     if (micLink) {
       micLink.classList.add('navlink', 'selected');
     }
@@ -769,23 +804,17 @@
     const navList = document.querySelector('.navlist, nav.nav-profile ul');
     if (!navList) return;
     
-    // Create the menu item - match exact structure of other nav items
+    // Create the menu item - use navitem js-page-network class
     const menuItem = document.createElement('li');
     menuItem.id = 'movies-in-common-menu-item';
+    menuItem.className = 'navitem js-page-network';
     
     // Create the anchor to match other nav items exactly
     const link = document.createElement('a');
     link.href = '#';
     link.textContent = 'Movies in common';
     link.style.display = 'block'; // Ensure vertical alignment matches other items
-    
-    // Copy classes from existing nav links to match styling
-    const existingNavLink = navList.querySelector('li a');
-    if (existingNavLink) {
-      link.className = existingNavLink.className;
-      // Ensure display block is still applied after copying classes
-      link.style.display = 'block';
-    }
+    link.className = 'navlink';
     
     menuItem.appendChild(link);
     // Add click handler
