@@ -428,22 +428,42 @@
    * Excludes empty-poster images
    */
   async function fetchPosterUrl(slug) {
-    try {
-      const movieUrl = `https://letterboxd.com/film/${slug}/`;
-      const response = await fetch(movieUrl);
-      const html = await response.text();
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(html, 'text/html');
-      
-      /**
-       * Check if a URL is valid (not empty-poster)
-       */
-      function isValidPosterUrl(url) {
-        if (!url) return false;
-        // Skip empty-poster images
-        if (url.includes('empty-poster')) return false;
-        return true;
-      }
+  try {
+    const movieUrl = `https://letterboxd.com/film/${slug}/`;
+    const response = await fetch(movieUrl);
+    
+    if (!response.ok) throw new Error('Network response was not ok');
+    
+    const html = await response.text();
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+
+    // 1. Best Method: Check JSON-LD (Structured Data)
+    const jsonLdScript = doc.querySelector('script[type="application/ld+json"]');
+    if (jsonLdScript) {
+      try {
+        const data = JSON.parse(jsonLdScript.textContent);
+        if (data.image) return data.image;
+      } catch (e) { console.error("JSON-LD parse error", e); }
+    }
+
+    // 2. Second Best: Open Graph Image (the social media thumbnail)
+    const ogImage = doc.querySelector('meta[property="og:image"]');
+    if (ogImage && ogImage.content) return ogImage.content;
+
+    // 3. Third Best: The Actual Poster Image Tag
+    const posterImg = doc.querySelector('.poster img');
+    if (posterImg) {
+      const url = posterImg.srcset ? posterImg.srcset.split(' ')[0] : posterImg.src;
+      if (url && !url.includes('empty-poster')) return url;
+    }
+
+    return '';
+  } catch (error) {
+    console.error("Failed to fetch poster for:", slug, error);
+    return '';
+  }
+}
       
       // Primary selector: div with both classes 'poster' and 'film-poster'
       const posterDiv = doc.querySelector('div.poster.film-poster');
