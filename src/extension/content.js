@@ -782,6 +782,10 @@
     // Check if this is a valid profile page
     if (!isValidProfilePage()) return;
     
+    // Don't show if user is not logged in (username is 'sign in')
+    const loggedInUser = getLoggedInUsername();
+    if (!loggedInUser || loggedInUser === 'sign in') return;
+    
     // Find the navigation list
     const navList = document.querySelector('.navlist, nav.nav-profile ul');
     if (!navList) return;
