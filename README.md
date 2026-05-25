@@ -1,2 +1,2 @@
-Letterboxd-common-movies-Chrome-extension
+## Letterboxd-common-movies-Chrome-extension
 Chrome extension allowing to compare movies of two Letterboxd users
